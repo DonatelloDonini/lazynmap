@@ -3,6 +3,7 @@ use std::{error::Error, os::unix::process::CommandExt, process::Command};
 use clap::{Parser, Subcommand};
 
 pub mod consts;
+pub mod run;
 pub mod scan;
 pub mod tui;
 
