@@ -860,6 +860,7 @@ dependencies = [
  "arboard",
  "clap",
  "color-eyre",
+ "libc",
  "once_cell",
  "ratatui",
  "strum",
