@@ -22,7 +22,9 @@ Tired of memorizing cryptic nmap flags? 😴 Say goodbye to the command-line str
   - ✨ Miscellaneous
   - 📜 NSE Scripts
 - **Live Command Preview:** See the nmap command being built in real-time as you edit options. 🏗️
-- **Direct Execution:** Execute the command directly from the app! `lazynmap` will even let you know if `sudo` privileges are needed. 🛡️
+- **Live Scan Screen:** Run the scan inside the TUI and watch it progress: phase and percent gauge with ETA, hosts and open ports as nmap finds them, per-host details (services, versions, NSE script output, OS), completed phases and the raw output log. `lazynmap` asks for your `sudo` password first when the scan needs it. 📡
+  - To track progress, `lazynmap` adds `--stats-every 1s`, `-v1` and `--noninteractive` unless you set them.
+  - Pass `--exec` to skip the scan screen and replace `lazynmap` with nmap, as before.
 - **Input Validation:** `lazynmap` ensures that the values you enter are valid for each nmap flag, so you can avoid common mistakes. ✅
 - **Keyboard Warrior Friendly:** Navigate the entire UI with your keyboard. ⌨️
   - **`j` / `Down`**: Next section
@@ -32,8 +34,17 @@ Tired of memorizing cryptic nmap flags? 😴 Say goodbye to the command-line str
   - **`Space`**: Toggle/Select option
   - **`Enter`**: Edit value
   - **`c`**: Clear/Reset value
-  - **`x`**: Execute command
+  - **`x`**: Run the scan
   - **`q`**: Quit
+- **Scan screen keys:**
+  - **`Tab` / `Shift+Tab`**, **`1` `2` `3`**: Switch pane (hosts, details, output)
+  - **`j` / `k`**, **`PgUp` / `PgDn`**, **`g` / `G`**: Scroll
+  - **`f`**: Toggle follow on the output log
+  - **`v`**: Show or hide nmap's stats lines
+  - **`s`** / **`Ctrl+C`**: Stop the scan (SIGINT, again for SIGTERM)
+  - **`r`**: Run the scan again, once it ended
+  - **`b`** / **`Esc`**: Back to the builder, once the scan ended
+  - **`q`**: Quit and print nmap's output in the terminal
 
 ## 🛠️ Installation 🛠️
 
