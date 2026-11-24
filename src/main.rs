@@ -7,9 +7,13 @@ pub mod run;
 pub mod scan;
 pub mod tui;
 
+use run::process::{ScanInvocation, authenticate_sudo, nmap_args};
 use scan::model::NmapScan;
 use scan::parser::NmapParser;
-use tui::app::App;
+use tui::{
+    app::App,
+    scan_screen::{ScanOutcome, ScanScreen},
+};
 
 use crate::scan::builder::NmapCommandBuilder;
 
@@ -17,6 +21,10 @@ use crate::scan::builder::NmapCommandBuilder;
 #[command(name = "lazynmap")]
 #[command(about = "A TUI for interactively generating nmap commands", long_about = None)]
 struct Cli {
+    /// Replace lazynmap with nmap when executing, instead of following the scan in the TUI
+    #[arg(long, global = true)]
+    exec: bool,
+
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -35,32 +43,85 @@ enum Commands {
     },
 }
 
-fn get_scan_args(command: &str) -> Vec<String> {
-    let tokens = NmapParser::tokenize(command);
-    if tokens.first().map(|s| s.as_str()) == Some("nmap") {
-        tokens.into_iter().skip(1).collect()
+fn exec_nmap(scan: &NmapScan, requires_admin: bool) -> Result<(), Box<dyn Error>> {
+    let command = NmapCommandBuilder::build(scan);
+    let args = nmap_args(&command);
+    let error = if requires_admin {
+        println!("sudo {}", command);
+        Command::new("sudo").arg("nmap").args(&args).exec()
     } else {
-        tokens
+        println!("{}", command);
+        Command::new("nmap").args(&args).exec()
+    };
+    Err(format!("Failed to exec: {}", error).into())
+}
+
+fn run_scan(scan: &mut NmapScan, exec: bool) -> Result<(), Box<dyn Error>> {
+    color_eyre::install()?;
+    let mut terminal = ratatui::init();
+    let result = run_screens(&mut terminal, scan, exec);
+    ratatui::restore();
+    match result? {
+        Exit::Quit => Ok(()),
+        Exit::Exec(requires_admin) => exec_nmap(scan, requires_admin),
+        Exit::ScanDone(command, output) => {
+            println!("$ {}", command);
+            for line in output {
+                println!("{}", line);
+            }
+            Ok(())
+        }
     }
 }
 
-fn run_scan(scan: &mut NmapScan) -> Result<(), Box<dyn Error>> {
-    if let Ok(app_result) = App::new(scan).start()
-        && app_result.execute
-    {
-        let command = NmapCommandBuilder::build(scan);
-        let args = get_scan_args(&command);
-        if app_result.requires_admin {
-            println!("sudo {}", command);
-            let error = Command::new("sudo").arg("nmap").args(&args).exec();
-            eprintln!("Failed to exec: {}", error);
-        } else {
-            println!("{}", command);
-            let error = Command::new("nmap").args(&args).exec();
-            eprintln!("Failed to exec: {}", error);
+enum Exit {
+    Quit,
+    Exec(bool),
+    ScanDone(String, Vec<String>),
+}
+
+/// Alternate between the command builder and the scan screen until the user quits
+fn run_screens(
+    terminal: &mut ratatui::DefaultTerminal,
+    scan: &mut NmapScan,
+    exec: bool,
+) -> Result<Exit, Box<dyn Error>> {
+    let mut app = App::new(scan);
+    let mut sudo_error = None;
+    loop {
+        app.error = sudo_error.take();
+        let result = app.run(terminal)?;
+        if !result.execute {
+            return Ok(Exit::Quit);
+        }
+        if exec {
+            return Ok(Exit::Exec(result.requires_admin));
+        }
+        let invocation = ScanInvocation::new(app.scan, result.requires_admin);
+        if invocation.sudo {
+            // The password prompt needs the normal terminal, not the alternate screen
+            ratatui::restore();
+            println!("lazynmap needs sudo to run: {}", invocation.display());
+            let authenticated = authenticate_sudo();
+            *terminal = ratatui::init();
+            match authenticated {
+                Ok(true) => {}
+                Ok(false) => {
+                    sudo_error = Some("sudo authentication failed".to_string());
+                    continue;
+                }
+                Err(error) => {
+                    sudo_error = Some(format!("could not run sudo: {error}"));
+                    continue;
+                }
+            }
+        }
+        let display = invocation.display();
+        match ScanScreen::new(invocation).run(terminal)? {
+            ScanOutcome::Back => continue,
+            ScanOutcome::Quit(output) => return Ok(Exit::ScanDone(display, output)),
         }
     }
-    Ok(())
 }
 
 fn validate_command(command: &str) -> Result<(), Box<dyn Error>> {
@@ -76,9 +137,9 @@ fn validate_command(command: &str) -> Result<(), Box<dyn Error>> {
     }
 }
 
-fn parse_and_run(command: &str) -> Result<(), Box<dyn Error>> {
+fn parse_and_run(command: &str, exec: bool) -> Result<(), Box<dyn Error>> {
     match NmapParser::parse(command) {
-        Ok(mut scan) => run_scan(&mut scan),
+        Ok(mut scan) => run_scan(&mut scan, exec),
         Err(e) => {
             eprintln!("Failed to parse nmap command: {}", e);
             std::process::exit(1);
@@ -91,8 +152,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     match cli.command {
         Some(Commands::Validate { command }) => validate_command(&command),
-        Some(Commands::Parse { command }) => parse_and_run(&command),
-        None => run_scan(&mut NmapScan::new()),
+        Some(Commands::Parse { command }) => parse_and_run(&command, cli.exec),
+        None => run_scan(&mut NmapScan::new(), cli.exec),
     }
 }
 
@@ -172,13 +233,16 @@ mod tests {
 
     #[test]
     fn test_get_scan_args_strips_nmap() {
-        let args = get_scan_args("nmap -sS -p 80,443 192.168.1.1");
+        let args = nmap_args("nmap -sS -p 80,443 192.168.1.1");
         assert_eq!(args, vec!["-sS", "-p", "80,443", "192.168.1.1"]);
     }
 
     #[test]
     fn test_get_scan_args_with_quoted_strings() {
-        let args = get_scan_args(r#"nmap --script-args "arg1=val1 arg2=val2" 192.168.1.1"#);
-        assert_eq!(args, vec!["--script-args", "arg1=val1 arg2=val2", "192.168.1.1"]);
+        let args = nmap_args(r#"nmap --script-args "arg1=val1 arg2=val2" 192.168.1.1"#);
+        assert_eq!(
+            args,
+            vec!["--script-args", "arg1=val1 arg2=val2", "192.168.1.1"]
+        );
     }
 }

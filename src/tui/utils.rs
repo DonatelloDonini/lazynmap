@@ -432,7 +432,7 @@ pub fn render_help(app: &mut App, frame: &mut Frame, area: Rect) {
         if app.input_map.contains_key(&app.focused_flag) {
             help_lines.extend(vec![Line::from("󰌑 : edit value")]);
         }
-        help_lines.extend(vec![Line::from("Q : quit"), Line::from("X : execute nmap")]);
+        help_lines.extend(vec![Line::from("Q : quit"), Line::from("X : run scan")]);
     }
     let help_list = Paragraph::new(help_lines).block(help_block);
     frame.render_widget(help_list, area);

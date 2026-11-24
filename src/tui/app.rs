@@ -70,33 +70,21 @@ impl<'a> App<'a> {
         }
     }
 
-    pub fn start(&mut self) -> Result<AppResult, Box<dyn Error>> {
-        color_eyre::install()?;
-        let terminal = ratatui::init();
-
-        let res = self.run(terminal);
-
-        ratatui::restore();
-        if let Err(err) = &res {
-            println!("{err:?}");
-        }
-        Result::Ok(AppResult {
-            execute: self.execute,
-            requires_admin: self.requires_admin,
-        })
-    }
-
-    fn run(&mut self, mut terminal: DefaultTerminal) -> Result<(), Box<dyn Error>> {
-        loop {
+    /// Run the command builder until the user quits or asks to execute the scan
+    pub fn run(&mut self, terminal: &mut DefaultTerminal) -> Result<AppResult, Box<dyn Error>> {
+        self.running = true;
+        self.execute = false;
+        self.requires_admin = requires_admin(self.scan);
+        while self.running {
             terminal.draw(|frame| self.draw(frame))?;
-
             if let Ok(event) = event::read() {
                 self.handle_event(event)?
             }
-            if !self.running {
-                return Ok(());
-            }
         }
+        Ok(AppResult {
+            execute: self.execute,
+            requires_admin: self.requires_admin,
+        })
     }
 
     fn draw(&mut self, frame: &mut Frame) {
@@ -209,6 +197,7 @@ impl<'a> App<'a> {
                     }
                 }
             } else {
+                self.error = None;
                 match key.code {
                     KeyCode::Char('q') | KeyCode::Char('Q') => {
                         self.running = false;
